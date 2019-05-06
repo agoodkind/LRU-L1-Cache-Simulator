@@ -1,0 +1,18 @@
+This is a L1 cache simulator using a doubly linked list to emulate an LRU replacement policy.
+
+
+The cache itself is a pseudo-hashmap where the indices are a set index. In every index there is a pointer to the head, tail, and count of a doubly linked list.
+
+When an item is request from the cache for the first time (cache being completely unused) a new node is allocated, then its pointer added to the head of the linked list (and tail since its empty). The count is updated at this point.
+
+When an item is requested from the cache, it will goto the index of its corresponding set index and then do a traversal until there is a match for the tag or until a NULL node is reached.
+
+If a NULL node is reached we consider this a miss, if there is a match we consider this a hit.
+
+Prefetch adds an additional step where the address + B (the size of each block in bytes) is read into the cache (if it does not already exist). 
+
+It can be observed that when prefetching is used, the cache miss rate goes down by almost half, while the cache write rate stays the same.
+
+The reason for the the miss rate reduction is that we are pulling in data that is local to others, most likely the operations are for loops iterating.
+
+The reason for the writes staying the same is most likely due to the fact that the writes are not optimized to use locality.
