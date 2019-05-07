@@ -8,12 +8,10 @@
 
 #include "first.h"
 #undef PA4_DEBUG
-#define NO_PREFETCH 1
-#define PREFETCH 1
 
 unsigned long B, C, E, S;
 int b, c, s, e, /*t,*/ prefetch, cache_misses, cache_hits, memory_reads, memory_writes, pf_cache_misses, pf_cache_hits, pf_memory_reads, pf_memory_writes;
-char mode;
+char associativity_level;
 
 int main(int argc, char * argv[]) {
     
@@ -44,7 +42,7 @@ int main(int argc, char * argv[]) {
     if (strcmp(associativity, "direct") == 0) { // direct mapped
         E = 1; // E = 2^0 = 1
         S = C / B;
-        mode = 'd';
+        associativity_level = 'd';
     } else if (associativity[5] == ':') { // assoc:n
         unsigned long assoc_num = 0;
         sscanf(associativity, "assoc:%ld", &assoc_num); // E = assoc level
@@ -56,7 +54,7 @@ int main(int argc, char * argv[]) {
             return 0;
         }
         
-        mode = 'n';
+        associativity_level = 'n';
         
         S = C / B / E;
     } else {
@@ -68,7 +66,7 @@ int main(int argc, char * argv[]) {
         S = 1;
         E = C / B;
         
-        mode = 'a';
+        associativity_level = 'a';
     }
     
     FILE * trace_file = fopen(argv[5], "r");
@@ -94,15 +92,11 @@ int main(int argc, char * argv[]) {
     printf("s: %d\n", s);
 #endif
 
-#ifdef NO_PREFETCH
     CacheQueue * cache = NULL;  // the cache to be used
     cache = create_cache();
-#endif
     
-#ifdef PREFETCH
     CacheQueue * pf_cache = NULL;
     pf_cache = create_cache();
-#endif
     
     // printf("\nprefetch: %d\n", prefetch);
     // read
@@ -120,51 +114,37 @@ int main(int argc, char * argv[]) {
             sscanf(input,"%*x: %c %lx\n", &mode, &address);
             
             if (mode == 'R') {
-#ifdef NO_PREFETCH
                 prefetch = 0;
                 read_cache(cache, address); // no prefetch
-#endif
-#ifdef PREFETCH
                 prefetch = 1;
                 read_cache(pf_cache, address); // with prefetch
-#endif
             } else if (mode == 'W') {
-#ifdef NO_PREFETCH
                 prefetch = 0;
                 write_cache(cache, address);
-#endif
-#ifdef PREFETCH
                 prefetch = 1;
                 write_cache(pf_cache, address);
-#endif
             }
         }
         
     }
     
-#ifdef NO_PREFETCH
+    fclose(trace_file);
+    
     printf("no-prefetch\n");
     printf("Memory reads: %d\n", memory_reads);
     printf("Memory writes: %d\n", memory_writes);
     printf("Cache hits: %d\n", cache_hits);
     printf("Cache misses: %d\n", cache_misses);
-#endif
-#ifdef PREFETCH
     printf("with-prefetch\n");
     printf("Memory reads: %d\n", pf_memory_reads);
     printf("Memory writes: %d\n", pf_memory_writes);
     printf("Cache hits: %d\n", pf_cache_hits);
     printf("Cache misses: %d\n", pf_cache_misses);
-#endif
-
-#ifdef NO_PREFETCH
-    free_cache(cache); // needed
-#endif
-#ifdef PREFETECH
-    free_cache(pf_cache);
-#endif
     
-    fclose(trace_file);
+    free_cache(cache); // needed
+    free_cache(pf_cache);
+    
+
     
     return 0;
 }
@@ -219,21 +199,15 @@ void read_cache(CacheQueue * cache, unsigned long address) {
     printf("empty set: %d\n", is_set_empty(set));
     printf("non-full set: %d\n", is_set_available(set));
     printf("set count: %d\n", set->count);
-#ifdef NO_PREFETCH
     printf("hit: %d\n", cache_hits);
-    printf("miss: %d\n", cache_misses);
-#endif
-#ifdef PREFETCH
-    
     printf("pf_hit: %d\n", pf_cache_hits);
     printf("miss: %d\n", pf_cache_misses);
-#endif
     printf("==========================\n");
 #endif
     
     if (is_in_set(set, tag)) {
         
-        if (mode != 'd' || E == 1) {
+        if (associativity_level != 'd' || E == 1) {
             pop_node(set, tag);
             enqueue(set, tag);
             
@@ -263,15 +237,10 @@ void read_cache(CacheQueue * cache, unsigned long address) {
     printf("empty set: %d\n", is_set_empty(set));
     printf("non-full set: %d\n", is_set_available(set));
     printf("set count: %d\n", set->count);
-#ifdef NO_PREFETCH
     printf("hit: %d\n", cache_hits);
     printf("miss: %d\n", cache_misses);
-#endif
-#ifdef PREFETCH
-    
     printf("pf_hit: %d\n", pf_cache_hits);
     printf("miss: %d\n", pf_cache_misses);
-#endif
     printf("==========================\n");
 #endif
 
@@ -287,12 +256,10 @@ void free_cache(CacheQueue * cache) {
     int i;
     
     for (i = 0; i < S; i++) {
-        if (is_set_empty(&cache[i])) {
-            break;
-        } else {
+        if (!is_set_empty(&cache[i])) {
             QueueNode * current = cache[i].head; // just start at head and go until NULL
             QueueNode * next = NULL;
-            while (current->next != NULL) {
+            while (current != NULL) {
                 next = current->next;
                 free(current);
                 current = next;
@@ -341,7 +308,6 @@ void increment_counter(char counter) {
             break;
     }
 }
-
 
 int is_set_available(CacheQueue * set) {
     // checks if set has space in it
@@ -424,9 +390,6 @@ void enqueue (CacheQueue * set, unsigned long tag) {
         set->head = new_block;
         set->tail = new_block;
     } else if (is_set_available(set)){ // when the set has space but isnt completely full
-        // case: count = 2, E > 2
-        //      case: found node at head
-        // case: count = 3, E > 3
         new_block->next = set->head;
         set->head->previous = new_block;
         //        set->head->next stays the same
@@ -496,19 +459,17 @@ void prefetch_block(CacheQueue * cache, unsigned long address) {
     unsigned long pf_tag = (address + B) >> (s + b);
     unsigned long pf_set_index = 0;
 
-    if (mode != 'a') {
+    if (associativity_level != 'a') {
         pf_set_index = ((address + B) & ((1 << (s + b)) - 1)) >> b;
     }
     
     CacheQueue * set = &cache[pf_set_index];
     
 #ifdef PA4_DEBUG
-#ifdef PREFETCH
     printf("prefetching a %lu byte offset of %lx\n", B, address);
     printf("pf_set: %lx\n", pf_set_index);
     printf("pf_tag: %lx\n", pf_tag);
     printf("pf_is_in_set: %d\n", is_in_set(set, pf_tag));
-#endif
 #endif
     
     if (is_in_set(set, pf_tag)) { // no need to prefetch if already in set
